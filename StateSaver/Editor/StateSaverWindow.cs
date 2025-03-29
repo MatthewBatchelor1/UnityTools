@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using Unity.Plastic.Newtonsoft.Json;
+using Unity.VisualScripting;
 using UnityEditor;
 using UnityEditor.VersionControl;
 using UnityEngine;
 
 public class StateSaverWindow : EditorWindow
 {
+    private const string FILE_PATH = "Assets/StateData.json";
     private object targetObject;
     private string stateName = "NewState";
     private List<string> loadOptions = new List<string>();
@@ -16,10 +18,9 @@ public class StateSaverWindow : EditorWindow
     [MenuItem("Window/State Saver")]
     public static void ShowWindow(object target)
     {
-        string targetId = GetTargetId(target);
-        Debug.Log("Target ID: " + targetId);
         StateSaverWindow window = GetWindow<StateSaverWindow>("State Saver");
         window.targetObject = target;
+        window.PopulateLoadOptions();
     }
 
     private void OnGUI()
@@ -40,16 +41,40 @@ public class StateSaverWindow : EditorWindow
         if (GUILayout.Button("Save State"))
         {
             SaveState(stateName);
+            PopulateLoadOptions();
         }
 
         GUILayout.Space(10);
 
         GUILayout.Label("Load State Options:");
-        selectedOption = EditorGUILayout.Popup("Select Option", selectedOption, loadOptions.ToArray());
+        selectedOption = EditorGUILayout.Popup("Select Option", selectedOption, stateNames.ToArray());
 
         if (GUILayout.Button("Load State"))
         {
             LoadState(selectedOption);
+        }
+    }
+
+    private void PopulateLoadOptions()
+    {
+        loadOptions.Clear();
+        stateNames.Clear();
+
+
+        if (System.IO.File.Exists(FILE_PATH))
+        {
+            string existingJson = System.IO.File.ReadAllText(FILE_PATH);
+            StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
+
+            if (existingData != null && existingData.targetId == GetTargetId(targetObject))
+            {
+                foreach (var state in existingData.states)
+                {
+                    string fullStateName = $"{state.stateName}${existingData.targetId}";
+                    loadOptions.Add(fullStateName); // Full name with UUID
+                    stateNames.Add(GetShortName(fullStateName)); // Short name for display
+                }
+            }
         }
     }
 
@@ -103,12 +128,11 @@ public class StateSaverWindow : EditorWindow
             variables = variableData
         });
 
-        string filePath = $"Assets/StateData.json";
+        // string FILE_PATH = $"Assets/StateData.json";
 
-
-        if (System.IO.File.Exists(filePath))
+        if (System.IO.File.Exists(FILE_PATH))
         {
-            string existingJson = System.IO.File.ReadAllText(filePath);
+            string existingJson = System.IO.File.ReadAllText(FILE_PATH);
             StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
             if (existingData != null && existingData.targetId == targetId)
             {
@@ -118,7 +142,7 @@ public class StateSaverWindow : EditorWindow
 
         string json = JsonConvert.SerializeObject(stateData, Formatting.Indented);
 
-        System.IO.File.WriteAllText(filePath, json);
+        System.IO.File.WriteAllText(FILE_PATH, json);
         AssetDatabase.Refresh();
     }
 
@@ -127,11 +151,49 @@ public class StateSaverWindow : EditorWindow
     {
         if (targetObject == null)
         {
-            Debug.LogError("No target object selected for saving state.");
+            Debug.LogError("No target object selected for loading state.");
             return;
         }
 
-        Debug.Log($"State loaded for option: {stateNames[option]}");
+        if (option < 0 || option >= loadOptions.Count)
+        {
+            Debug.LogError("Invalid state selection.");
+            return;
+        }
+
+        string selectedStateName = loadOptions[option]; // Full state name with UUID
+        string filePath = $"Assets/StateData.json";
+
+        if (System.IO.File.Exists(filePath))
+        {
+            string existingJson = System.IO.File.ReadAllText(filePath);
+            StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
+
+            if (existingData != null && existingData.targetId == GetTargetId(targetObject))
+            {
+                // Find the selected state
+                var selectedState = existingData.states.Find(state => $"{state.stateName}${existingData.targetId}" == selectedStateName);
+
+                if (selectedState != null)
+                {
+                    // Assign variables to the target object
+                    var targetType = targetObject.GetType();
+                    foreach (var variable in selectedState.variables)
+                    {
+                        var field = targetType.GetField(variable.Key, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        if (field != null)
+                        {
+                            object value = ConvertFromSerializable(variable.Value, field.FieldType);
+                            field.SetValue(targetObject, value);
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.LogError("Selected state not found in JSON.");
+                }
+            }
+        }
     }
 
     string GetShortName(string stateName)
@@ -177,6 +239,34 @@ public class StateSaverWindow : EditorWindow
 
         // Return the value as-is for other types
         return value;
+    }
+    private object ConvertFromSerializable(object value, Type targetType)
+    {
+        if (value == null)
+            return null;
+
+        if (targetType == typeof(Vector3))
+        {
+            var dict = value as Unity.Plastic.Newtonsoft.Json.Linq.JObject;
+            return new Vector3((float)dict["x"], (float)dict["y"], (float)dict["z"]);
+        }
+        else if (targetType == typeof(Color))
+        {
+            var dict = value as Unity.Plastic.Newtonsoft.Json.Linq.JObject;
+            return new Color((float)dict["r"], (float)dict["g"], (float)dict["b"], (float)dict["a"]);
+        }
+        else if (targetType == typeof(Quaternion))
+        {
+            var dict = value as Unity.Plastic.Newtonsoft.Json.Linq.JObject;
+            return new Quaternion((float)dict["x"], (float)dict["y"], (float)dict["z"], (float)dict["w"]);
+        }
+        else if (targetType.IsEnum)
+        {
+            return Enum.Parse(targetType, value.ToString());
+        }
+
+        // For other types, return the value as-is
+        return Convert.ChangeType(value, targetType);
     }
 
     [System.Serializable]

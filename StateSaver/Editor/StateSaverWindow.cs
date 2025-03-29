@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Unity.Plastic.Newtonsoft.Json;
 using Unity.VisualScripting;
 using UnityEditor;
@@ -55,29 +56,6 @@ public class StateSaverWindow : EditorWindow
         }
     }
 
-    private void PopulateLoadOptions()
-    {
-        loadOptions.Clear();
-        stateNames.Clear();
-
-
-        if (System.IO.File.Exists(FILE_PATH))
-        {
-            string existingJson = System.IO.File.ReadAllText(FILE_PATH);
-            StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
-
-            if (existingData != null && existingData.targetId == GetTargetId(targetObject))
-            {
-                foreach (var state in existingData.states)
-                {
-                    string fullStateName = $"{state.stateName}${existingData.targetId}";
-                    loadOptions.Add(fullStateName); // Full name with UUID
-                    stateNames.Add(GetShortName(fullStateName)); // Short name for display
-                }
-            }
-        }
-    }
-
     private void SaveState(string stateName)
     {
         if (targetObject == null)
@@ -94,9 +72,9 @@ public class StateSaverWindow : EditorWindow
 
         Dictionary<string, object> variableData = new Dictionary<string, object>();
 
-        var targetType = targetObject.GetType();
+        Type targetType = targetObject.GetType();
 
-        var fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        FieldInfo[] fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         foreach (var field in fields)
         {
@@ -116,37 +94,60 @@ public class StateSaverWindow : EditorWindow
             }
         }
 
-        StateData stateData = new StateData
-        {
-            targetId = targetId,
-            states = new List<StateEntry>()
-        };
-
-        stateData.states.Add(new StateEntry
-        {
-            stateName = stateName,
-            variables = variableData
-        });
-
-        // string FILE_PATH = $"Assets/StateData.json";
-
+        Dictionary<string, StateData> allStateData = new Dictionary<string, StateData>();
         if (System.IO.File.Exists(FILE_PATH))
         {
             string existingJson = System.IO.File.ReadAllText(FILE_PATH);
-            StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
-            if (existingData != null && existingData.targetId == targetId)
-            {
-                stateData.states.AddRange(existingData.states);
-            }
+            allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson) ?? new Dictionary<string, StateData>();
         }
 
-        string json = JsonConvert.SerializeObject(stateData, Formatting.Indented);
+        if (!allStateData.ContainsKey(targetId))
+        {
+            allStateData[targetId] = new StateData
+            {
+                targetId = targetId,
+                states = new List<StateEntry>()
+            };
+        }
+
+        // StateData stateData = new StateData
+        // {
+        //     targetId = targetId,
+        //     states = new List<StateEntry>()
+        // };
+
+        StateData stateData = allStateData[targetId];
+        StateEntry existingState = stateData.states.Find(state => state.stateName == stateName);
+        if (existingState != null)
+        {
+            existingState.variables = variableData;
+        }
+        else
+        {
+            stateData.states.Add(new StateEntry
+            {
+                stateName = stateName,
+                variables = variableData
+            });
+        }
+
+        // string FILE_PATH = $"Assets/StateData.json";
+
+        // if (System.IO.File.Exists(FILE_PATH))
+        // {
+        //     string existingJson = System.IO.File.ReadAllText(FILE_PATH);
+        //     StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
+        //     if (existingData != null && existingData.targetId == targetId)
+        //     {
+        //         stateData.states.AddRange(existingData.states);
+        //     }
+        // }
+
+        string json = JsonConvert.SerializeObject(allStateData, Formatting.Indented);
 
         System.IO.File.WriteAllText(FILE_PATH, json);
         AssetDatabase.Refresh();
     }
-
-
     private void LoadState(int option)
     {
         if (targetObject == null)
@@ -162,21 +163,20 @@ public class StateSaverWindow : EditorWindow
         }
 
         string selectedStateName = loadOptions[option]; // Full state name with UUID
-        string filePath = $"Assets/StateData.json";
 
-        if (System.IO.File.Exists(filePath))
+        if (System.IO.File.Exists(FILE_PATH))
         {
-            string existingJson = System.IO.File.ReadAllText(filePath);
-            StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
+            string existingJson = System.IO.File.ReadAllText(FILE_PATH);
+            Dictionary<string, StateData> allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson);
 
-            if (existingData != null && existingData.targetId == GetTargetId(targetObject))
+            if (allStateData != null && allStateData.ContainsKey(GetTargetId(targetObject)))
             {
-                // Find the selected state
-                var selectedState = existingData.states.Find(state => $"{state.stateName}${existingData.targetId}" == selectedStateName);
+                var targetStateData = allStateData[GetTargetId(targetObject)];
+
+                var selectedState = targetStateData.states.Find(state => $"{state.stateName}${targetStateData.targetId}" == selectedStateName);
 
                 if (selectedState != null)
                 {
-                    // Assign variables to the target object
                     var targetType = targetObject.GetType();
                     foreach (var variable in selectedState.variables)
                     {
@@ -193,9 +193,39 @@ public class StateSaverWindow : EditorWindow
                     Debug.LogError("Selected state not found in JSON.");
                 }
             }
+            else
+            {
+                Debug.LogError("No data found for the current target object.");
+            }
+        }
+        else
+        {
+            Debug.LogError("State data file not found.");
         }
     }
 
+    private void PopulateLoadOptions()
+    {
+        loadOptions.Clear();
+        stateNames.Clear();
+
+        if (System.IO.File.Exists(FILE_PATH))
+        {
+            string existingJson = System.IO.File.ReadAllText(FILE_PATH);
+            var allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson);
+
+            if (allStateData != null && allStateData.ContainsKey(GetTargetId(targetObject)))
+            {
+                var targetStateData = allStateData[GetTargetId(targetObject)];
+                foreach (var state in targetStateData.states)
+                {
+                    string fullStateName = $"{state.stateName}${targetStateData.targetId}";
+                    loadOptions.Add(fullStateName);
+                    stateNames.Add(GetShortName(fullStateName));
+                }
+            }
+        }
+    }
     string GetShortName(string stateName)
     {
         return stateName.Split("$")[0];
@@ -218,26 +248,31 @@ public class StateSaverWindow : EditorWindow
     {
         if (value is Vector3 vector3)
         {
-            // Convert Vector3 to a serializable format
             return new { x = vector3.x, y = vector3.y, z = vector3.z };
         }
         else if (value is Color color)
         {
-            // Convert Color to a serializable format
             return new { r = color.r, g = color.g, b = color.b, a = color.a };
         }
         else if (value is Quaternion quaternion)
         {
-            // Convert Quaternion to a serializable format
             return new { x = quaternion.x, y = quaternion.y, z = quaternion.z, w = quaternion.w };
         }
         else if (value is Enum enumValue)
         {
-            // Convert Enum to its string representation
             return enumValue.ToString();
         }
+        else if (value is Transform transform)
+        {
+            // Serialize Transform properties
+            return new
+            {
+                position = new { x = transform.position.x, y = transform.position.y, z = transform.position.z },
+                rotation = new { x = transform.rotation.x, y = transform.rotation.y, z = transform.rotation.z, w = transform.rotation.w },
+                scale = new { x = transform.localScale.x, y = transform.localScale.y, z = transform.localScale.z }
+            };
+        }
 
-        // Return the value as-is for other types
         return value;
     }
     private object ConvertFromSerializable(object value, Type targetType)

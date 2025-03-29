@@ -76,14 +76,11 @@ public class StateSaverWindow : EditorWindow
 
         FieldInfo[] fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        foreach (var field in fields)
+        foreach (FieldInfo field in fields)
         {
             try
             {
                 object value = field.GetValue(targetObject);
-
-
-                // Skip null or default values
                 if (value == null || IsDefaultValue(value))
                     continue;
                 variableData[field.Name] = ConvertToSerializable(value);
@@ -110,12 +107,6 @@ public class StateSaverWindow : EditorWindow
             };
         }
 
-        // StateData stateData = new StateData
-        // {
-        //     targetId = targetId,
-        //     states = new List<StateEntry>()
-        // };
-
         StateData stateData = allStateData[targetId];
         StateEntry existingState = stateData.states.Find(state => state.stateName == stateName);
         if (existingState != null)
@@ -130,18 +121,6 @@ public class StateSaverWindow : EditorWindow
                 variables = variableData
             });
         }
-
-        // string FILE_PATH = $"Assets/StateData.json";
-
-        // if (System.IO.File.Exists(FILE_PATH))
-        // {
-        //     string existingJson = System.IO.File.ReadAllText(FILE_PATH);
-        //     StateData existingData = JsonConvert.DeserializeObject<StateData>(existingJson);
-        //     if (existingData != null && existingData.targetId == targetId)
-        //     {
-        //         stateData.states.AddRange(existingData.states);
-        //     }
-        // }
 
         string json = JsonConvert.SerializeObject(allStateData, Formatting.Indented);
 
@@ -171,16 +150,16 @@ public class StateSaverWindow : EditorWindow
 
             if (allStateData != null && allStateData.ContainsKey(GetTargetId(targetObject)))
             {
-                var targetStateData = allStateData[GetTargetId(targetObject)];
+                StateData targetStateData = allStateData[GetTargetId(targetObject)];
 
-                var selectedState = targetStateData.states.Find(state => $"{state.stateName}${targetStateData.targetId}" == selectedStateName);
+                StateEntry selectedState = targetStateData.states.Find(state => $"{state.stateName}${targetStateData.targetId}" == selectedStateName);
 
                 if (selectedState != null)
                 {
-                    var targetType = targetObject.GetType();
-                    foreach (var variable in selectedState.variables)
+                    Type targetType = targetObject.GetType();
+                    foreach (KeyValuePair<string, object> variable in selectedState.variables)
                     {
-                        var field = targetType.GetField(variable.Key, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        FieldInfo field = targetType.GetField(variable.Key, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                         if (field != null)
                         {
                             object value = ConvertFromSerializable(variable.Value, field.FieldType);
@@ -212,12 +191,12 @@ public class StateSaverWindow : EditorWindow
         if (System.IO.File.Exists(FILE_PATH))
         {
             string existingJson = System.IO.File.ReadAllText(FILE_PATH);
-            var allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson);
+            Dictionary<string, StateData> allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson);
 
             if (allStateData != null && allStateData.ContainsKey(GetTargetId(targetObject)))
             {
-                var targetStateData = allStateData[GetTargetId(targetObject)];
-                foreach (var state in targetStateData.states)
+                StateData targetStateData = allStateData[GetTargetId(targetObject)];
+                foreach (StateEntry state in targetStateData.states)
                 {
                     string fullStateName = $"{state.stateName}${targetStateData.targetId}";
                     loadOptions.Add(fullStateName);
@@ -240,7 +219,7 @@ public class StateSaverWindow : EditorWindow
         if (value == null)
             return true;
 
-        var type = value.GetType();
+        Type type = value.GetType();
         return value.Equals(type.IsValueType ? Activator.CreateInstance(type) : null);
     }
 
@@ -315,14 +294,6 @@ public class StateSaverWindow : EditorWindow
     public class StateEntry
     {
         public string stateName;
-        // public List<VariableEntry> variables;
         public Dictionary<string, object> variables = new Dictionary<string, object>();
-    }
-
-    [System.Serializable]
-    public class VariableEntry
-    {
-        public string key;
-        public object value;
     }
 }

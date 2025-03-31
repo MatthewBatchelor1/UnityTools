@@ -11,6 +11,7 @@ public class StateSaverWindow : EditorWindow
 {
     private const string FILE_PATH = "Assets/StateData.json";
     private object targetObject;
+    UnityEngine.Object targetObjectUnity;
     private string stateName = "NewState";
     private List<string> loadOptions = new List<string>();
     private List<string> stateNames = new List<string>();
@@ -21,6 +22,7 @@ public class StateSaverWindow : EditorWindow
     {
         StateSaverWindow window = GetWindow<StateSaverWindow>("State Saver");
         window.targetObject = target;
+        window.targetObjectUnity = target as UnityEngine.Object;
         window.PopulateLoadOptions();
     }
 
@@ -73,6 +75,9 @@ public class StateSaverWindow : EditorWindow
         Dictionary<string, object> variableData = new Dictionary<string, object>();
 
         Type targetType = targetObject.GetType();
+        Debug.Log("Target Type: " + targetType.ToString());
+
+        //Get Fields 
 
         FieldInfo[] fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
@@ -89,6 +94,45 @@ public class StateSaverWindow : EditorWindow
             {
                 Debug.LogWarning($"Could not read field: {field.Name}. Exception: {ex.Message}");
             }
+        }
+
+        SerializedObject serializedComponent = new SerializedObject(targetObjectUnity);
+        serializedComponent.Update();
+
+        SerializedProperty serProperty = serializedComponent.GetIterator();
+        serProperty.Next(true);
+
+        while (serProperty.NextVisible(enterChildren: false))
+        {
+            Debug.Log("Serialized Property: " + serProperty.name);
+            Debug.Log("Value = " + GetPropValue(serProperty));
+
+            variableData[serProperty.name + "_" + serProperty.propertyType.ToString()] = ConvertToSerializable(GetPropValue(serProperty));
+        }
+
+
+        //Get Properties
+
+        //This gets the properties of the target object by type, it is not guarenteed that they will exist on it
+        // PropertyInfo[] properties = targetType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        PropertyInfo[] properties = targetType.GetProperties();
+        foreach (PropertyInfo property in properties)
+        {
+            if (!property.CanRead)
+                continue;
+
+            // Debug.Log("Property: " + property.Name);
+
+            // try
+            // {
+            //     object value = property.GetValue(targetObject);
+            //     Debug.Log("Property: " + property.Name + " Value: " + value.ToString());
+            // }
+            // catch (Exception e)
+            // {
+            //     Debug.LogWarning($"Could not get value of property: {property.Name}. Exception: {e.Message}");
+            //     continue;
+            // }
         }
 
         Dictionary<string, StateData> allStateData = new Dictionary<string, StateData>();
@@ -282,6 +326,35 @@ public class StateSaverWindow : EditorWindow
         // For other types, return the value as-is
         return Convert.ChangeType(value, targetType);
     }
+
+    private string GetPropValue(SerializedProperty prop)
+    {
+        SerializedPropertyType type = prop.propertyType;
+        switch (type)
+        {
+            case SerializedPropertyType.Integer:
+                return prop.intValue.ToString();
+            case SerializedPropertyType.Boolean:
+                return prop.boolValue.ToString();
+            case SerializedPropertyType.Float:
+                return prop.floatValue.ToString();
+            case SerializedPropertyType.String:
+                return prop.stringValue;
+            case SerializedPropertyType.Color:
+                return prop.colorValue.ToString();
+            case SerializedPropertyType.Vector2:
+                return prop.vector2Value.ToString();
+            case SerializedPropertyType.Vector3:
+                return prop.vector3Value.ToString();
+            case SerializedPropertyType.Vector4:
+                return prop.vector4Value.ToString();
+            case SerializedPropertyType.Quaternion:
+                return prop.quaternionValue.ToString();
+            default:
+                return "Unsupported type";
+        }
+    }
+
 
     [System.Serializable]
     public class StateData

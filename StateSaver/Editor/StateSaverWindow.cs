@@ -88,13 +88,15 @@ public class StateSaverWindow : EditorWindow
                 object value = field.GetValue(targetObject);
                 if (value == null || IsDefaultValue(value))
                     continue;
-                variableData[field.Name] = ConvertToSerializable(value);
+                variableData["FIELD&" + field.Name] = ConvertToSerializable(value);
             }
             catch (System.Exception ex)
             {
                 Debug.LogWarning($"Could not read field: {field.Name}. Exception: {ex.Message}");
             }
         }
+
+        //Get properties through serialized object
 
         SerializedObject serializedComponent = new SerializedObject(targetObjectUnity);
         serializedComponent.Update();
@@ -104,35 +106,7 @@ public class StateSaverWindow : EditorWindow
 
         while (serProperty.NextVisible(enterChildren: false))
         {
-            Debug.Log("Serialized Property: " + serProperty.name);
-            Debug.Log("Value = " + GetPropValue(serProperty));
-
-            variableData[serProperty.name + "_" + serProperty.propertyType.ToString()] = ConvertToSerializable(GetPropValue(serProperty));
-        }
-
-
-        //Get Properties
-
-        //This gets the properties of the target object by type, it is not guarenteed that they will exist on it
-        // PropertyInfo[] properties = targetType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        PropertyInfo[] properties = targetType.GetProperties();
-        foreach (PropertyInfo property in properties)
-        {
-            if (!property.CanRead)
-                continue;
-
-            // Debug.Log("Property: " + property.Name);
-
-            // try
-            // {
-            //     object value = property.GetValue(targetObject);
-            //     Debug.Log("Property: " + property.Name + " Value: " + value.ToString());
-            // }
-            // catch (Exception e)
-            // {
-            //     Debug.LogWarning($"Could not get value of property: {property.Name}. Exception: {e.Message}");
-            //     continue;
-            // }
+            variableData["PROP&" + serProperty.name + "&" + serProperty.propertyType.ToString()] = ConvertToSerializable(GetPropValue(serProperty));
         }
 
         Dictionary<string, StateData> allStateData = new Dictionary<string, StateData>();
@@ -201,15 +175,38 @@ public class StateSaverWindow : EditorWindow
                 if (selectedState != null)
                 {
                     Type targetType = targetObject.GetType();
+                    SerializedObject serializedComponent = new SerializedObject(targetObjectUnity);
+                    serializedComponent.Update();
+
                     foreach (KeyValuePair<string, object> variable in selectedState.variables)
                     {
-                        FieldInfo field = targetType.GetField(variable.Key, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                        if (field != null)
+                        string variableName = variable.Key;
+                        if (variableName.StartsWith("FIELD&"))
                         {
-                            object value = ConvertFromSerializable(variable.Value, field.FieldType);
-                            field.SetValue(targetObject, value);
+                            string fieldName = variableName.Substring(6); // Remove "FIELD_" prefix
+
+                            FieldInfo field = targetType.GetField(fieldName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                            if (field != null)
+                            {
+                                object value = ConvertFromSerializable(variable.Value, field.FieldType);
+                                field.SetValue(targetObject, value);
+                            }
+                        }
+                        else if (variableName.StartsWith("PROP&"))
+                        {
+                            string[] parts = variableName.Split(new[] { '&' }, 3);
+
+                            SerializedProperty prop = serializedComponent.FindProperty(parts[1]);
+                            if (prop != null)
+                            {
+                                SetPropValue(parts[2], prop, variable.Value.ToString());
+
+                            }
                         }
                     }
+                    serializedComponent.ApplyModifiedProperties();
+                    EditorUtility.SetDirty(targetObjectUnity);
+                    serializedComponent.Update();
                 }
                 else
                 {
@@ -353,6 +350,76 @@ public class StateSaverWindow : EditorWindow
             default:
                 return "Unsupported type";
         }
+    }
+
+    private bool SetPropValue(string type, SerializedProperty prop, string value)
+    {
+        switch (type)
+        {
+            case "Integer":
+                prop.intValue = int.Parse(value);
+                break;
+            case "Boolean":
+                prop.boolValue = bool.Parse(value);
+                break;
+            case "Float":
+                prop.floatValue = float.Parse(value);
+                break;
+            case "String":
+                prop.stringValue = value;
+                break;
+            case "Color":
+                string values = value.Substring(5);
+                values = values.Remove(values.Length - 1);
+                string[] colourValues = values.Split(',');
+                if (colourValues.Length == 4)
+                {
+                    float r = float.Parse(colourValues[0].Trim());
+                    float g = float.Parse(colourValues[1].Trim());
+                    float b = float.Parse(colourValues[2].Trim());
+                    float a = float.Parse(colourValues[3].Trim());
+
+                    prop.colorValue = new Color(r, g, b, a);
+                    return true;
+                }
+                break;
+            case "Vector2":
+                string[] vector2Values = value.Trim(new char[] { '(', ')' }).Split(',');
+                if (vector2Values.Length == 2)
+                {
+                    prop.vector2Value = new Vector2(float.Parse(vector2Values[0]), float.Parse(vector2Values[1]));
+                    return true;
+                }
+                break;
+            case "Vector3":
+                string[] vector3Values = value.Trim(new char[] { '(', ')' }).Split(',');
+                if (vector3Values.Length == 3)
+                {
+                    prop.vector3Value = new Vector3(float.Parse(vector3Values[0]), float.Parse(vector3Values[1]), float.Parse(vector3Values[2]));
+                    return true;
+                }
+                break;
+            case "Vector4":
+                string[] vector4Values = value.Trim(new char[] { '(', ')' }).Split(',');
+                if (vector4Values.Length == 4)
+                {
+                    prop.vector4Value = new Vector4(float.Parse(vector4Values[0]), float.Parse(vector4Values[1]), float.Parse(vector4Values[2]), float.Parse(vector4Values[3]));
+                    return true;
+                }
+                break;
+            case "Quaternion":
+                string[] quaternionValues = value.Trim(new char[] { '(', ')' }).Split(',');
+                if (quaternionValues.Length == 4)
+                {
+                    prop.quaternionValue = new Quaternion(float.Parse(quaternionValues[0]), float.Parse(quaternionValues[1]), float.Parse(quaternionValues[2]), float.Parse(quaternionValues[3]));
+                    return true;
+                }
+                break;
+            default:
+                Debug.LogError("Unsupported property type: " + type);
+                return false;
+        }
+        return true;
     }
 
 

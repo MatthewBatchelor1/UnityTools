@@ -91,25 +91,6 @@ public class StateSaverWindow : EditorWindow
             Type targetType = targetObject.GetType();
             Debug.Log("Target Type: " + targetType.ToString());
 
-            //Get Fields 
-
-            FieldInfo[] fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-            foreach (FieldInfo field in fields)
-            {
-                try
-                {
-                    object value = field.GetValue(targetObject);
-                    if (value == null || IsDefaultValue(value))
-                        continue;
-                    variableData["FIELD&" + field.Name] = ConvertToSerializable(value);
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"Could not read field: {field.Name}. Exception: {ex.Message}");
-                }
-            }
-
             //Get properties through serialized object
 
             SerializedObject serializedComponent = new SerializedObject(targetObjectUnity);
@@ -196,18 +177,7 @@ public class StateSaverWindow : EditorWindow
                     foreach (KeyValuePair<string, object> variable in selectedState.variables)
                     {
                         string variableName = variable.Key;
-                        if (variableName.StartsWith("FIELD&"))
-                        {
-                            string fieldName = variableName.Substring(6); // Remove "FIELD_" prefix
-
-                            FieldInfo field = targetType.GetField(fieldName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                            if (field != null)
-                            {
-                                object value = ConvertFromSerializable(variable.Value, field.FieldType);
-                                field.SetValue(targetObject, value);
-                            }
-                        }
-                        else if (variableName.StartsWith("PROP&"))
+                        if (variableName.StartsWith("PROP&"))
                         {
                             string[] parts = variableName.Split(new[] { '&' }, 3);
 
@@ -342,6 +312,7 @@ public class StateSaverWindow : EditorWindow
     private string GetPropValue(SerializedProperty prop)
     {
         SerializedPropertyType type = prop.propertyType;
+        Debug.Log("Property Type: " + type.ToString());
         switch (type)
         {
             case SerializedPropertyType.Integer:

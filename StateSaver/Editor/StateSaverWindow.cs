@@ -312,7 +312,6 @@ public class StateSaverWindow : EditorWindow
     private string GetPropValue(SerializedProperty prop)
     {
         SerializedPropertyType type = prop.propertyType;
-        Debug.Log("Property Type: " + type.ToString());
         switch (type)
         {
             case SerializedPropertyType.Integer:

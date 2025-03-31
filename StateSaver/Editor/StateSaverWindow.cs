@@ -18,12 +18,18 @@ public class StateSaverWindow : EditorWindow
     private int selectedOption = 0;
 
     [MenuItem("Window/State Saver")]
-    public static void ShowWindow(object target)
+    public static void ShowWindow(object target = null)
     {
         StateSaverWindow window = GetWindow<StateSaverWindow>("State Saver");
-        window.targetObject = target;
-        window.targetObjectUnity = target as UnityEngine.Object;
-        window.PopulateLoadOptions();
+
+        if (target != null)
+        {
+            window.targetObject = target;
+            window.targetObjectUnity = target as UnityEngine.Object;
+            window.PopulateLoadOptions();
+        }
+
+        EditorApplication.update += window.UpdateTargetObject;
     }
 
     private void OnGUI()
@@ -32,11 +38,17 @@ public class StateSaverWindow : EditorWindow
 
         if (targetObject != null)
         {
-            GUILayout.Label("Target Object: " + targetObject.ToString(), EditorStyles.label);
+            GUILayout.Label("Target Object: " + targetObject.ToString(), EditorStyles.helpBox);
         }
         else
         {
-            GUILayout.Label("No target object selected.", EditorStyles.label);
+            GUIStyle warningBox = new GUIStyle(EditorStyles.helpBox);
+            warningBox.normal.textColor = Color.yellow;
+            warningBox.fontStyle = FontStyle.Bold;
+            warningBox.fontSize = 20;
+            warningBox.alignment = TextAnchor.MiddleCenter;
+
+            GUILayout.Label("No target object selected.", warningBox);
         }
 
         GUILayout.Label("Enter your state name:", EditorStyles.label);
@@ -62,94 +74,97 @@ public class StateSaverWindow : EditorWindow
     {
         if (targetObject == null)
         {
-            Debug.LogError("No target object selected for saving state.");
+            Debug.LogWarning("No target object selected for saving state.");
             return;
-        }
-        if (stateName == "")
-        {
-            stateName = "NewState";
-        }
-
-        string targetId = GetTargetId(targetObject);
-
-        Dictionary<string, object> variableData = new Dictionary<string, object>();
-
-        Type targetType = targetObject.GetType();
-        Debug.Log("Target Type: " + targetType.ToString());
-
-        //Get Fields 
-
-        FieldInfo[] fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-        foreach (FieldInfo field in fields)
-        {
-            try
-            {
-                object value = field.GetValue(targetObject);
-                if (value == null || IsDefaultValue(value))
-                    continue;
-                variableData["FIELD&" + field.Name] = ConvertToSerializable(value);
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"Could not read field: {field.Name}. Exception: {ex.Message}");
-            }
-        }
-
-        //Get properties through serialized object
-
-        SerializedObject serializedComponent = new SerializedObject(targetObjectUnity);
-        serializedComponent.Update();
-
-        SerializedProperty serProperty = serializedComponent.GetIterator();
-        serProperty.Next(true);
-
-        while (serProperty.NextVisible(enterChildren: false))
-        {
-            variableData["PROP&" + serProperty.name + "&" + serProperty.propertyType.ToString()] = ConvertToSerializable(GetPropValue(serProperty));
-        }
-
-        Dictionary<string, StateData> allStateData = new Dictionary<string, StateData>();
-        if (System.IO.File.Exists(FILE_PATH))
-        {
-            string existingJson = System.IO.File.ReadAllText(FILE_PATH);
-            allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson) ?? new Dictionary<string, StateData>();
-        }
-
-        if (!allStateData.ContainsKey(targetId))
-        {
-            allStateData[targetId] = new StateData
-            {
-                targetId = targetId,
-                states = new List<StateEntry>()
-            };
-        }
-
-        StateData stateData = allStateData[targetId];
-        StateEntry existingState = stateData.states.Find(state => state.stateName == stateName);
-        if (existingState != null)
-        {
-            existingState.variables = variableData;
         }
         else
         {
-            stateData.states.Add(new StateEntry
+            if (stateName == "")
             {
-                stateName = stateName,
-                variables = variableData
-            });
+                stateName = "NewState";
+            }
+
+            string targetId = GetTargetId(targetObject);
+
+            Dictionary<string, object> variableData = new Dictionary<string, object>();
+
+            Type targetType = targetObject.GetType();
+            Debug.Log("Target Type: " + targetType.ToString());
+
+            //Get Fields 
+
+            FieldInfo[] fields = targetType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            foreach (FieldInfo field in fields)
+            {
+                try
+                {
+                    object value = field.GetValue(targetObject);
+                    if (value == null || IsDefaultValue(value))
+                        continue;
+                    variableData["FIELD&" + field.Name] = ConvertToSerializable(value);
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"Could not read field: {field.Name}. Exception: {ex.Message}");
+                }
+            }
+
+            //Get properties through serialized object
+
+            SerializedObject serializedComponent = new SerializedObject(targetObjectUnity);
+            serializedComponent.Update();
+
+            SerializedProperty serProperty = serializedComponent.GetIterator();
+            serProperty.Next(true);
+
+            while (serProperty.NextVisible(enterChildren: false))
+            {
+                variableData["PROP&" + serProperty.name + "&" + serProperty.propertyType.ToString()] = ConvertToSerializable(GetPropValue(serProperty));
+            }
+
+            Dictionary<string, StateData> allStateData = new Dictionary<string, StateData>();
+            if (System.IO.File.Exists(FILE_PATH))
+            {
+                string existingJson = System.IO.File.ReadAllText(FILE_PATH);
+                allStateData = JsonConvert.DeserializeObject<Dictionary<string, StateData>>(existingJson) ?? new Dictionary<string, StateData>();
+            }
+
+            if (!allStateData.ContainsKey(targetId))
+            {
+                allStateData[targetId] = new StateData
+                {
+                    targetId = targetId,
+                    states = new List<StateEntry>()
+                };
+            }
+
+            StateData stateData = allStateData[targetId];
+            StateEntry existingState = stateData.states.Find(state => state.stateName == stateName);
+            if (existingState != null)
+            {
+                existingState.variables = variableData;
+            }
+            else
+            {
+                stateData.states.Add(new StateEntry
+                {
+                    stateName = stateName,
+                    variables = variableData
+                });
+            }
+
+            string json = JsonConvert.SerializeObject(allStateData, Formatting.Indented);
+
+            System.IO.File.WriteAllText(FILE_PATH, json);
+            AssetDatabase.Refresh();
         }
-
-        string json = JsonConvert.SerializeObject(allStateData, Formatting.Indented);
-
-        System.IO.File.WriteAllText(FILE_PATH, json);
-        AssetDatabase.Refresh();
     }
     private void LoadState(int option)
     {
         if (targetObject == null)
         {
-            Debug.LogError("No target object selected for loading state.");
+            Debug.LogWarning("No target object selected for loading state.");
             return;
         }
 
@@ -416,12 +431,28 @@ public class StateSaverWindow : EditorWindow
                 }
                 break;
             default:
-                Debug.LogError("Unsupported property type: " + type);
+                Debug.LogWarning("Unsupported property type: " + type);
                 return false;
         }
         return true;
     }
 
+    void UpdateTargetObject()
+    {
+        if (targetObjectUnity == null && Selection.activeObject != targetObjectUnity)
+        {
+            targetObject = Selection.activeObject;
+            targetObjectUnity = targetObject as UnityEngine.Object;
+            PopulateLoadOptions();
+            Repaint();
+            //S
+        }
+    }
+
+    private void OnDestroy()
+    {
+        EditorApplication.update -= UpdateTargetObject;
+    }
 
     [System.Serializable]
     public class StateData
